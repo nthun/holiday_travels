@@ -1,0 +1,142 @@
+---
+title: "Holday travels"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| include: FALSE
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(skimr)
+library(correlation)
+library(performance)
+
+theme_set(theme_minimal())
+
+```
+
+# Read raw data
+```{r}
+holidays_raw <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-12-24/global_holidays.csv')
+
+passengers_raw <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-12-24/monthly_passengers.csv')
+
+
+holidays_raw |> glimpse()
+holidays_raw |> tail()
+
+holidays_raw |> 
+    arrange(Date) |> 
+    tail()
+
+holidays_raw |> 
+    summarise(max_date = max(Date))
+
+```
+
+# Process data
+```{r}
+holidays <- 
+    holidays_raw |> 
+    clean_names() |> 
+    mutate(year = year(date),
+           month = month(date),
+           day = day(date))
+
+passengers <- 
+    passengers_raw |> 
+    clean_names()
+
+skim(holidays)
+skim(passengers)
+
+```
+
+# Explore holidays
+
+```{r}
+
+country_holidays <- 
+    holidays |> 
+    group_by(adm_name, iso3, year) |> 
+    summarise(yearly_n = n()) |> 
+    group_by(adm_name, iso3) |> 
+    summarise(avg_holidays = mean(yearly_n), .groups = "drop")
+
+bind_rows(slice_max(country_holidays, avg_holidays, n = 10),
+          slice_min(country_holidays, avg_holidays, n = 10)) |> 
+    mutate(adm_name = fct_reorder(adm_name, avg_holidays)) |> 
+    ggplot() +
+    aes(x = avg_holidays, y = adm_name, label = scales::number(avg_holidays, accuracy = 0.1)) +
+    geom_col() +
+    geom_text(hjust = 1) +
+    labs(y = NULL, title = "Average number of holidays in the Top 10 and Bottom 10 countries")
+
+```
+
+# Explore passengers
+
+```{r}
+passengers |> 
+    select(total:total_os) |> 
+    correlation() |> 
+    summary()
+    
+```
+
+```{r}
+
+total_travel <- 
+    passengers |> 
+    drop_na(total_os) |> 
+    select(-(total:international)) |> 
+    mutate(total_os = if_else(iso3 == "USA", total_os/1000, total_os))
+
+total_travel |> 
+    group_by(year, month) |> 
+    summarise(avg_travel = sum(total_os)) |> 
+    ggplot() +
+    aes(x = month, y = avg_travel, color = year, group = year) +
+    geom_line(size = 1.1) +
+    scale_y_continuous(labels = scales::comma_format()) +
+    scale_x_continuous(breaks = scales::pretty_breaks()) +
+    scale_color_viridis_c() +
+    labs(y = NULL, color = "Year", x = "Month",
+         title = "Worldwide traveller number trends by month and year")
+    
+
+```
+
+
+# Predict the number of travellers by month and year, and month second order polinomial
+
+```{r}
+
+travel_model <- 
+    total_travel |> 
+    lm(total_os ~ year + poly(month, 2), data = _)
+
+summary(travel_model)
+
+check_model(travel_model)
+
+total_travel |> 
+    mutate(std_travel = scale(total_os) |> as.numeric()) |> 
+    filter(std_travel > 2)
+
+total_travel |> 
+    mutate(std_travel = scale(total_os) |> as.numeric()) |> 
+    filter(iso3 == "USA")
+    
+```
+
+
+
+
+
+
+
+
